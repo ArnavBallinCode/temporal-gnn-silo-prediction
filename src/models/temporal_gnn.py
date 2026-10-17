@@ -32,6 +32,7 @@ import torch
 import torch.nn as nn
 
 from src.graph.meta_graph import CliqueMetaGraph
+from src.graph.cliques import match_cliques_bipartite
 from src.models.gnn import SpatialGCN
 
 
@@ -39,6 +40,7 @@ def match_cliques_jaccard(
     prev_cliques: List[Tuple[int, ...]],
     curr_cliques: List[Tuple[int, ...]],
     threshold: float = 0.5,
+    one_to_one: bool = True,
 ) -> Dict[int, int]:
     """
     Matches current cliques to previous cliques using Jaccard node similarity.
@@ -47,14 +49,21 @@ def match_cliques_jaccard(
         prev_cliques: List of cliques from snapshot k-1.
         curr_cliques: List of cliques from snapshot k.
         threshold: Minimum Jaccard similarity to consider them the same group.
+        one_to_one: If True (default), enforces 1-to-1 matching so that multiple current
+                    cliques cannot map to the same previous clique.
 
     Returns:
         Dict mapping current_clique_idx -> previous_clique_idx for persisting cliques.
     """
-    matches: Dict[int, int] = {}
     if not prev_cliques or not curr_cliques:
-        return matches
+        return {}
 
+    if one_to_one:
+        result = match_cliques_bipartite(prev_cliques, curr_cliques, threshold=threshold, method="greedy")
+        return result.curr_to_prev
+
+    # Legacy greedy match (allows many-to-one mapping)
+    matches: Dict[int, int] = {}
     prev_sets = [set(c) for c in prev_cliques]
 
     for curr_idx, curr_c in enumerate(curr_cliques):
@@ -79,7 +88,9 @@ def match_cliques_jaccard(
 
 class TemporalGNN(nn.Module):
     """
-    Spatial GCN + Recurrent GRU Temporal GNN.
+    Spatial GCN + Recurrent GRU Temporal GNN with support for both:
+    1. Single-stage / Zero-fill tension forecasting.
+    2. Two-stage hurdle forecasting (Stage A: persistence classification + Stage B: conditional tension regression).
     """
 
     def __init__(
@@ -88,11 +99,13 @@ class TemporalGNN(nn.Module):
         hidden_dim: int = 16,
         dropout: float = 0.1,
         jaccard_threshold: float = 0.5,
+        one_to_one_matching: bool = True,
     ):
         super().__init__()
         self.in_features = in_features
         self.hidden_dim = hidden_dim
         self.jaccard_threshold = jaccard_threshold
+        self.one_to_one_matching = one_to_one_matching
 
         # 1. Spatial GNN layer: encodes meta-graph conflict topology
         self.spatial_gnn = SpatialGCN(
@@ -103,14 +116,21 @@ class TemporalGNN(nn.Module):
         )
 
         # 2. Recurrent GRU Cell: tracks temporal evolution of clique embeddings
-        # input size = hidden_dim, hidden size = hidden_dim
         self.gru_cell = nn.GRUCell(input_size=hidden_dim, hidden_size=hidden_dim)
 
-        # 3. Prediction Head: regresses future tension score
+        # 3. Regression Head: conditional future tension score T_hat(C) >= 0
+        head_mid = hidden_dim // 2 if hidden_dim >= 4 else hidden_dim
         self.head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2 if hidden_dim >= 4 else hidden_dim),
+            nn.Linear(hidden_dim, head_mid),
             nn.ReLU(),
-            nn.Linear(hidden_dim // 2 if hidden_dim >= 4 else hidden_dim, 1),
+            nn.Linear(head_mid, 1),
+        )
+
+        # 4. Persistence Head (Stage A): logit of survival into next snapshot
+        self.persistence_head = nn.Sequential(
+            nn.Linear(hidden_dim, head_mid),
+            nn.ReLU(),
+            nn.Linear(head_mid, 1),
         )
 
     def forward_snapshot(
@@ -120,7 +140,7 @@ class TemporalGNN(nn.Module):
         prev_hidden_state: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Processes a single snapshot meta-graph.
+        Processes a single snapshot meta-graph and returns tension predictions.
 
         Args:
             meta_graph: CliqueMetaGraph at current time k.
@@ -151,6 +171,7 @@ class TemporalGNN(nn.Module):
                 prev_meta_graph.cliques,
                 meta_graph.cliques,
                 threshold=self.jaccard_threshold,
+                one_to_one=self.one_to_one_matching,
             )
 
             # Initialize current hidden state with spatial embedding
@@ -158,10 +179,11 @@ class TemporalGNN(nn.Module):
 
             # For persisting cliques, update with GRUCell
             for curr_idx, prev_idx in matches.items():
-                input_vec = spatial_emb[curr_idx].unsqueeze(0)  # [1, D]
-                hx = prev_hidden_state[prev_idx].unsqueeze(0)   # [1, D]
-                updated_vec = self.gru_cell(input_vec, hx)      # [1, D]
-                curr_hidden[curr_idx] = updated_vec.squeeze(0)
+                if prev_idx < len(prev_hidden_state):
+                    input_vec = spatial_emb[curr_idx].unsqueeze(0)  # [1, D]
+                    hx = prev_hidden_state[prev_idx].unsqueeze(0)   # [1, D]
+                    updated_vec = self.gru_cell(input_vec, hx)      # [1, D]
+                    curr_hidden[curr_idx] = updated_vec.squeeze(0)
         else:
             # First snapshot or previous had 0 cliques: initialize s_i = h_i
             curr_hidden = spatial_emb
@@ -170,6 +192,61 @@ class TemporalGNN(nn.Module):
         preds = torch.nn.functional.softplus(self.head(curr_hidden).squeeze(-1))
 
         return preds, curr_hidden
+
+    def forward_two_stage(
+        self,
+        meta_graph: CliqueMetaGraph,
+        prev_meta_graph: Optional[CliqueMetaGraph] = None,
+        prev_hidden_state: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Two-stage forward pass:
+        Returns:
+            (expected_tension, persistence_prob, conditional_tension, curr_hidden)
+            where expected_tension = persistence_prob * conditional_tension.
+        """
+        num_cliques = meta_graph.num_cliques
+        device = meta_graph.features.device
+        if num_cliques == 0:
+            empty_1d = torch.zeros((0,), dtype=torch.float32, device=device)
+            empty_h = torch.zeros((0, self.hidden_dim), dtype=torch.float32, device=device)
+            return empty_1d, empty_1d, empty_1d, empty_h
+
+        # Compute hidden states
+        spatial_emb = self.spatial_gnn(
+            meta_graph.features,
+            meta_graph.edge_index,
+            meta_graph.edge_weights,
+        )
+
+        if prev_meta_graph is not None and prev_hidden_state is not None and prev_meta_graph.num_cliques > 0:
+            matches = match_cliques_jaccard(
+                prev_meta_graph.cliques,
+                meta_graph.cliques,
+                threshold=self.jaccard_threshold,
+                one_to_one=self.one_to_one_matching,
+            )
+            curr_hidden = spatial_emb.clone()
+            for curr_idx, prev_idx in matches.items():
+                if prev_idx < len(prev_hidden_state):
+                    input_vec = spatial_emb[curr_idx].unsqueeze(0)
+                    hx = prev_hidden_state[prev_idx].unsqueeze(0)
+                    updated_vec = self.gru_cell(input_vec, hx)
+                    curr_hidden[curr_idx] = updated_vec.squeeze(0)
+        else:
+            curr_hidden = spatial_emb
+
+        # Stage A: Persistence probability
+        persist_logits = self.persistence_head(curr_hidden).squeeze(-1)
+        persist_prob = torch.sigmoid(persist_logits)
+
+        # Stage B: Conditional tension (>= 0)
+        cond_tension = torch.nn.functional.softplus(self.head(curr_hidden).squeeze(-1))
+
+        # Expected tension: E[T] = P(persist) * T_cond
+        expected_tension = persist_prob * cond_tension
+
+        return expected_tension, persist_prob, cond_tension, curr_hidden
 
     def predict_node_sri(
         self,

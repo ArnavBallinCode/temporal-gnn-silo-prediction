@@ -7,8 +7,17 @@ __pycache__/
 .pytest_cache/
 
 # Outputs and logs
-outputs/
+outputs/*
+!outputs/audit/
 *.log
 
 # macOS
 .DS_Store
+
+# LaTeX temporary files
+*.aux
+*.out
+*.toc
+
+# Paper working directory (ignored from repository)
+Paper/

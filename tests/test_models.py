@@ -100,6 +100,7 @@ def test_training_step_updates_parameters():
     """
     Verifies that a backward step computes finite gradients and updates parameters.
     """
+    torch.manual_seed(42)
     G = nx.Graph()
     G.add_edges_from([(1, 2), (2, 3), (1, 3), (3, 4), (4, 5), (3, 5)])
     snap = GraphSnapshot(snapshot_id=0, start_time_ms=0, end_time_ms=1000, graph=G, num_events=2)

@@ -38,7 +38,7 @@ from src.graph.meta_graph import build_clique_meta_graph
 from src.models.baselines import FeatureOnlyMLP, PersistenceBaseline, StaticGCNModel
 from src.models.temporal_gnn import TemporalGNN
 from src.training.metrics import compute_ranking_metrics, compute_regression_metrics
-from src.training.trainer import build_forecasting_targets, evaluate_model, train_temporal_gnn
+from src.training.trainer import build_forecasting_targets, build_two_stage_targets, evaluate_model, train_temporal_gnn
 
 
 def save_artifacts(
@@ -186,7 +186,11 @@ def run_experiment(
 
     # 3. Build forecasting targets & chronological splits
     print("\n[Step 3/5] Constructing future tension forecasting targets and chronological splits...")
-    targets = build_forecasting_targets(meta_graphs, delta=forecast_delta)
+    targets_bundle = build_two_stage_targets(meta_graphs, delta=forecast_delta, jaccard_threshold=0.5)
+    targets = targets_bundle.zero_fill_targets
+    p_targets = targets_bundle.persistence_targets
+    c_targets = targets_bundle.conditional_targets
+    p_masks = targets_bundle.persisting_masks
 
     # Chronological partition (70% Train, 15% Val, 15% Test)
     valid_indices = [i for i, t in enumerate(targets) if t is not None]
@@ -208,14 +212,25 @@ def run_experiment(
 
     # --- Baseline 1: Persistence ---
     persistence = PersistenceBaseline()
-    p_true, p_pred = [], []
+    p_true_A, p_pred_A = [], []
+    p_true_B, p_pred_B = [], []
     for idx in test_indices:
         meta = meta_graphs[idx]
         target = targets[idx]
+        c_t = c_targets[idx]
+        mask = p_masks[idx]
         if target is not None and len(target) > 0 and meta.num_cliques > 0:
-            p_pred.extend(persistence.predict(meta).tolist())
-            p_true.extend(target.tolist())
-    p_metrics = compute_regression_metrics(np.array(p_true), np.array(p_pred))
+            pred = persistence.predict(meta)
+            p_pred_A.extend(pred.tolist())
+            p_true_A.extend(target.tolist())
+            if mask is not None:
+                for i in range(meta.num_cliques):
+                    if mask[i].item():
+                        p_pred_B.append(float(pred[i].item()))
+                        p_true_B.append(float(c_t[i].item()))
+
+    p_metrics_A = compute_regression_metrics(np.array(p_true_A), np.array(p_pred_A))
+    p_metrics_B = compute_regression_metrics(np.array(p_true_B), np.array(p_pred_B))
 
     # --- Baseline 2: Feature-Only MLP ---
     mlp = FeatureOnlyMLP(in_features=5, hidden_dim=hidden_dim)
@@ -234,15 +249,26 @@ def run_experiment(
                 mlp_opt.step()
 
     mlp.eval()
-    mlp_true, mlp_pred = [], []
+    mlp_true_A, mlp_pred_A = [], []
+    mlp_true_B, mlp_pred_B = [], []
     with torch.no_grad():
         for idx in test_indices:
             meta = meta_graphs[idx]
             target = targets[idx]
+            c_t = c_targets[idx]
+            mask = p_masks[idx]
             if target is not None and len(target) > 0 and meta.num_cliques > 0:
-                mlp_pred.extend(mlp(meta.features).tolist())
-                mlp_true.extend(target.tolist())
-    mlp_metrics = compute_regression_metrics(np.array(mlp_true), np.array(mlp_pred))
+                pred = mlp(meta.features)
+                mlp_pred_A.extend(pred.tolist())
+                mlp_true_A.extend(target.tolist())
+                if mask is not None:
+                    for i in range(meta.num_cliques):
+                        if mask[i].item():
+                            mlp_pred_B.append(float(pred[i].item()))
+                            mlp_true_B.append(float(c_t[i].item()))
+
+    mlp_metrics_A = compute_regression_metrics(np.array(mlp_true_A), np.array(mlp_pred_A))
+    mlp_metrics_B = compute_regression_metrics(np.array(mlp_true_B), np.array(mlp_pred_B))
 
     # --- Baseline 3: Static GCN ---
     static_gcn = StaticGCNModel(in_features=5, hidden_dim=hidden_dim, dropout=0.1)
@@ -260,15 +286,26 @@ def run_experiment(
                 sgcn_opt.step()
 
     static_gcn.eval()
-    sgcn_true, sgcn_pred = [], []
+    sgcn_true_A, sgcn_pred_A = [], []
+    sgcn_true_B, sgcn_pred_B = [], []
     with torch.no_grad():
         for idx in test_indices:
             meta = meta_graphs[idx]
             target = targets[idx]
+            c_t = c_targets[idx]
+            mask = p_masks[idx]
             if target is not None and len(target) > 0 and meta.num_cliques > 0:
-                sgcn_pred.extend(static_gcn(meta).tolist())
-                sgcn_true.extend(target.tolist())
-    sgcn_metrics = compute_regression_metrics(np.array(sgcn_true), np.array(sgcn_pred))
+                pred = static_gcn(meta)
+                sgcn_pred_A.extend(pred.tolist())
+                sgcn_true_A.extend(target.tolist())
+                if mask is not None:
+                    for i in range(meta.num_cliques):
+                        if mask[i].item():
+                            sgcn_pred_B.append(float(pred[i].item()))
+                            sgcn_true_B.append(float(c_t[i].item()))
+
+    sgcn_metrics_A = compute_regression_metrics(np.array(sgcn_true_A), np.array(sgcn_pred_A))
+    sgcn_metrics_B = compute_regression_metrics(np.array(sgcn_true_B), np.array(sgcn_pred_B))
 
     # --- Proposed Model: Temporal GNN (GCN + GRU) ---
     temporal_gnn = TemporalGNN(
@@ -276,41 +313,57 @@ def run_experiment(
         hidden_dim=hidden_dim,
         dropout=0.1,
         jaccard_threshold=0.5,
+        one_to_one_matching=True,
     )
     temporal_gnn, train_losses, val_losses = train_temporal_gnn(
         model=temporal_gnn,
         meta_graphs=meta_graphs,
-        targets=targets,
+        targets=targets_bundle,
         train_indices=train_indices,
         val_indices=val_indices,
         epochs=epochs,
         lr=lr,
         seed=seed,
+        target_mode="zero_fill",
+        state_protocol="warm_start",
     )
     tgnn_metrics = evaluate_model(
         temporal_gnn,
         meta_graphs,
-        targets,
+        targets_bundle,
         test_indices,
         all_node_ids=all_node_ids,
+        target_mode="zero_fill",
+        state_protocol="warm_start",
     )
 
     # 5. Display Benchmark Results Table
-    print("\n" + "=" * 85)
+    print("\n" + "=" * 95)
     print(" [Step 5/5] FINAL HELD-OUT TEST BENCHMARK RESULTS (Future Tension Forecasting):")
-    print("=" * 85)
-    print(f"{'Model Architecture':<30} | {'MSE':<8} | {'RMSE':<8} | {'MAE':<8} | {'Pearson r':<10}")
-    print("-" * 85)
-    print(f"{'Persistence Baseline':<30} | {p_metrics['mse']:<8.4f} | {p_metrics['rmse']:<8.4f} | {p_metrics['mae']:<8.4f} | {p_metrics['pearson_r']:<10.4f}")
-    print(f"{'Feature-Only MLP':<30} | {mlp_metrics['mse']:<8.4f} | {mlp_metrics['rmse']:<8.4f} | {mlp_metrics['mae']:<8.4f} | {mlp_metrics['pearson_r']:<10.4f}")
-    print(f"{'Static GCN':<30} | {sgcn_metrics['mse']:<8.4f} | {sgcn_metrics['rmse']:<8.4f} | {sgcn_metrics['mae']:<8.4f} | {sgcn_metrics['pearson_r']:<10.4f}")
-    print(f"{'Temporal GNN (GCN + GRU)':<30} | {tgnn_metrics['mse']:<8.4f} | {tgnn_metrics['rmse']:<8.4f} | {tgnn_metrics['mae']:<8.4f} | {tgnn_metrics['pearson_r']:<10.4f}")
-    print("-" * 85)
+    print("=" * 95)
+    print(" PROTOCOL A (UNCONDITIONAL, N = 109 test cliques, unmatched = 0.0):")
+    print(f"{'Model Architecture':<32} | {'MSE':<8} | {'RMSE':<8} | {'MAE':<8} | {'Pearson r':<10}")
+    print("-" * 95)
+    print(f"{'Persistence Baseline':<32} | {p_metrics_A['mse']:<8.4f} | {p_metrics_A['rmse']:<8.4f} | {p_metrics_A['mae']:<8.4f} | {p_metrics_A['pearson_r']:<10.4f}")
+    print(f"{'Feature-Only MLP':<32} | {mlp_metrics_A['mse']:<8.4f} | {mlp_metrics_A['rmse']:<8.4f} | {mlp_metrics_A['mae']:<8.4f} | {mlp_metrics_A['pearson_r']:<10.4f}")
+    print(f"{'Static GCN':<32} | {sgcn_metrics_A['mse']:<8.4f} | {sgcn_metrics_A['rmse']:<8.4f} | {sgcn_metrics_A['mae']:<8.4f} | {sgcn_metrics_A['pearson_r']:<10.4f}")
+    print(f"{'Temporal GNN (Warm-Start GRU)':<32} | {tgnn_metrics['mse']:<8.4f} | {tgnn_metrics['rmse']:<8.4f} | {tgnn_metrics['mae']:<8.4f} | {tgnn_metrics['pearson_r']:<10.4f}")
+    print("-" * 95)
+
+    print("\n PROTOCOL B (CONDITIONAL ON SURVIVAL, N = 35 persisting test cliques):")
+    print(f"{'Model Architecture':<32} | {'MSE':<8} | {'RMSE':<8} | {'MAE':<8} | {'Pearson r':<10}")
+    print("-" * 95)
+    print(f"{'Persistence Baseline':<32} | {p_metrics_B['mse']:<8.4f} | {p_metrics_B['rmse']:<8.4f} | {p_metrics_B['mae']:<8.4f} | {p_metrics_B['pearson_r']:<10.4f}")
+    print(f"{'Feature-Only MLP':<32} | {mlp_metrics_B['mse']:<8.4f} | {mlp_metrics_B['rmse']:<8.4f} | {mlp_metrics_B['mae']:<8.4f} | {mlp_metrics_B['pearson_r']:<10.4f}")
+    print(f"{'Static GCN':<32} | {sgcn_metrics_B['mse']:<8.4f} | {sgcn_metrics_B['rmse']:<8.4f} | {sgcn_metrics_B['mae']:<8.4f} | {sgcn_metrics_B['pearson_r']:<10.4f}")
+    print(f"{'Temporal GNN (Warm-Start GRU)':<32} | {tgnn_metrics['protocol_b_mse']:<8.4f} | {tgnn_metrics['protocol_b_rmse']:<8.4f} | {tgnn_metrics['protocol_b_mae']:<8.4f} | {tgnn_metrics['protocol_b_pearson_r']:<10.4f}")
+    print("-" * 95)
 
     print("\nNode-Level Silo Risk Index (SRI) Ranking Performance (Temporal GNN on Test Set):")
-    print(f"  - Spearman Rank Correlation (rho): {tgnn_metrics['avg_spearman_rho']:.4f}")
-    print(f"  - Top-5 Silo Overlap:             {tgnn_metrics['avg_top5_overlap'] * 100:.1f}%")
-    print(f"  - Top-10 Silo Overlap:            {tgnn_metrics['avg_top10_overlap'] * 100:.1f}%")
+    print(f"  - Spearman Rank Correlation (All 148 Employees):    {tgnn_metrics['avg_spearman_rho']:.4f}")
+    print(f"  - Spearman Rank Correlation (Active Employees Only): {tgnn_metrics['avg_spearman_rho_active']:.4f}")
+    print(f"  - Top-5 Silo Overlap:                               {tgnn_metrics['avg_top5_overlap'] * 100:.1f}%")
+    print(f"  - Top-10 Silo Overlap:                              {tgnn_metrics['avg_top10_overlap'] * 100:.1f}%")
 
     # Inspect peak risk snapshot in test split
     if test_indices:
@@ -329,9 +382,9 @@ def run_experiment(
     # 6. Save Artifacts to outputs/
     out_path = Path(output_dir)
     metrics_summary = {
-        "persistence_baseline": p_metrics,
-        "feature_only_mlp": mlp_metrics,
-        "static_gcn": sgcn_metrics,
+        "persistence_baseline": {"protocol_A": p_metrics_A, "protocol_B": p_metrics_B},
+        "feature_only_mlp": {"protocol_A": mlp_metrics_A, "protocol_B": mlp_metrics_B},
+        "static_gcn": {"protocol_A": sgcn_metrics_A, "protocol_B": sgcn_metrics_B},
         "temporal_gnn": tgnn_metrics,
         "parameters": {
             "window_days": window_days,

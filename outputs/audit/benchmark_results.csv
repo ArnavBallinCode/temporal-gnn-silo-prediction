@@ -1,0 +1,23 @@
+protocol,model,mse_mean,mse_std,rmse_mean,rmse_std,mae_mean,mae_std,pearson_r_mean,pearson_r_std,spearman_rho_all_mean,spearman_rho_all_std,spearman_rho_active_mean,spearman_rho_active_std,top5_overlap_mean,top5_overlap_std,top10_overlap_mean,top10_overlap_std
+"Protocol A (Unconditional, N=109)",Persistence Baseline,23.4724,0.0,4.8448,0.0,3.8834,0.0,0.2975,0.0,0.5285,0.0,0.5051,0.0,0.48,0.0,0.54,0.0
+"Protocol A (Unconditional, N=109)",Historical Mean Baseline,6.444,0.0,2.5385,0.0,1.6216,0.0,-0.0577,0.0,0.543,0.0,0.4942,0.0,0.44,0.0,0.5,0.0
+"Protocol A (Unconditional, N=109)",Feature-Only MLP,5.53,0.043,2.3516,0.0091,2.0796,0.0273,0.2898,0.0162,0.5499,0.0015,0.4856,0.0021,0.448,0.016,0.56,0.0126
+"Protocol A (Unconditional, N=109)",Static GCN,5.3251,0.2572,2.3069,0.0555,1.7707,0.1795,0.1876,0.0546,0.5455,0.0033,0.4847,0.0125,0.504,0.0196,0.544,0.015
+"Protocol A (Unconditional, N=109)",Temporal GNN (No GRU Ablation),5.5048,0.4012,2.3447,0.0842,1.7476,0.19,0.1357,0.1255,0.5457,0.0038,0.4765,0.0259,0.504,0.032,0.536,0.015
+"Protocol A (Unconditional, N=109)",Temporal GNN (Full GCN + GRU),6.3441,0.8882,2.5127,0.1749,2.0473,0.1177,0.0787,0.0457,0.5336,0.0065,0.4136,0.0372,0.432,0.0531,0.48,0.0283
+"Protocol A (Unconditional, N=109)",Temporal GNN (Warm-Start GRU),5.468,0.2413,2.3378,0.0513,1.9704,0.0592,0.2184,0.0281,0.5408,0.0052,0.4501,0.0286,0.496,0.0196,0.528,0.016
+"Protocol A (Unconditional, N=109)",Feature-Only MLP (Two-Stage),5.9312,1.1013,2.426,0.2141,2.0496,0.186,0.2778,0.0835,0.5486,0.005,0.4844,0.0201,0.472,0.016,0.56,0.0126
+"Protocol A (Unconditional, N=109)",Static GCN (Two-Stage),6.625,1.4766,2.5596,0.2711,2.0361,0.3017,0.1882,0.1871,0.5474,0.0059,0.4797,0.0426,0.488,0.0588,0.54,0.0179
+"Protocol A (Unconditional, N=109)",Temporal GNN No-GRU (Two-Stage),5.6058,0.485,2.3654,0.1036,2.0757,0.1021,0.2866,0.0139,0.5507,0.0012,0.5039,0.003,0.504,0.032,0.568,0.016
+"Protocol A (Unconditional, N=109)",Temporal GNN Full (Two-Stage Warm-Start),6.1772,0.9776,2.4777,0.1955,2.0679,0.16,0.2128,0.064,0.5424,0.0088,0.4511,0.0333,0.408,0.064,0.508,0.0299
+"Protocol B (Persisting Only, N=35)",Persistence Baseline,5.038,0.0,2.2446,0.0,1.9515,0.0,0.7206,0.0,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Historical Mean Baseline,17.8069,0.0,4.2198,0.0,3.7844,0.0,0.0,0.0,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Feature-Only MLP,6.438,0.179,2.5371,0.0354,2.0606,0.0616,0.367,0.0246,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Static GCN,12.9216,3.8546,3.5509,0.5595,3.1105,0.5524,0.5589,0.0778,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Temporal GNN (No GRU Ablation),13.2648,4.7074,3.5788,0.6761,3.1361,0.6793,0.4225,0.3363,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Temporal GNN (Full GCN + GRU),10.8627,1.9382,3.2826,0.2953,2.7875,0.2897,0.248,0.108,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Temporal GNN (Warm-Start GRU),7.9957,0.9091,2.8234,0.1554,2.3708,0.1636,0.5637,0.0736,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Feature-Only MLP (Two-Stage),4.5041,0.6469,2.1168,0.1528,1.8852,0.1434,0.6886,0.027,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Static GCN (Two-Stage),6.4841,6.1508,2.3284,1.031,2.0193,0.9639,0.4351,0.5384,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Temporal GNN No-GRU (Two-Stage),3.1274,0.5864,1.7611,0.1612,1.5244,0.1378,0.714,0.0519,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
+"Protocol B (Persisting Only, N=35)",Temporal GNN Full (Two-Stage Warm-Start),3.8445,0.4749,1.9568,0.1246,1.6175,0.0869,0.7066,0.0569,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A

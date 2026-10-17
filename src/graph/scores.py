@@ -224,3 +224,103 @@ def compute_temporal_smoothed_sri(
         smoothed[nid] = weighted_sum / Z if Z > 0 else 0.0
 
     return smoothed
+
+
+def compute_boundary_bridging_index(
+    G: nx.Graph,
+    all_nodes: Optional[List[int]] = None,
+) -> Dict[int, float]:
+    """
+    Computes a complementary node-level Boundary Bridging Index (BBI) based on structural holes.
+
+    Plain English:
+        Measures the degree to which an employee communicates across disconnected colleagues.
+        Unlike SRI (which requires membership in a retained clique of size >= 3), BBI is defined
+        for ALL communicating employees in the network graph.
+
+    Formula:
+        BBI(u) = strength(u) * (1.0 - clustering(u))
+        where strength(u) = sum of weights on edges incident to u,
+        and clustering(u) = local clustering coefficient of u in G.
+
+    Returns:
+        Dict mapping node ID -> float BBI score.
+    """
+    scores: Dict[int, float] = {}
+    if all_nodes is not None:
+        for nid in all_nodes:
+            scores[nid] = 0.0
+
+    if G.number_of_nodes() == 0:
+        return scores
+
+    clustering = nx.clustering(G)
+
+    for u in G.nodes():
+        # Weighted degree / communication strength
+        strength = sum(G[u][v].get("weight", 1.0) for v in G.neighbors(u))
+        c_coeff = clustering.get(u, 0.0)
+        scores[u] = float(strength * (1.0 - c_coeff))
+
+    return scores
+
+
+def audit_sri_coverage(
+    G: nx.Graph,
+    retained_cliques: List[Tuple[int, ...]],
+    all_max_cliques: List[Tuple[int, ...]],
+    all_nodes: List[int],
+    tensions: Optional[Dict[Tuple[int, ...], float]] = None,
+) -> Dict[str, any]:
+    """
+    Quantifies why employees have SRI equal to zero and evaluates clique coverage.
+
+    Deconstructs the employee population into:
+    1. Inactive employees: 0 communication in snapshot G (degree 0).
+    2. Dyad-only communicators: degree > 0 in G, but belong to no maximal clique of size >= 3.
+    3. Truncation-excluded nodes: belong to a size >= 3 clique, but NOT retained in top_k.
+    4. Retained clique members: belong to at least one retained clique.
+    5. Positive SRI nodes: members of retained cliques with non-zero tension T(C) > 0.
+    6. Zero SRI communicators: active employees in G who have SRI == 0 due to extraction policy.
+
+    Returns:
+        Dict of employee counts and node ID sets for each category.
+    """
+    all_set = set(all_nodes)
+    graph_nodes = set(G.nodes())
+    inactive_nodes = all_set - graph_nodes
+
+    all_clique_nodes = set(n for c in all_max_cliques for n in c)
+    retained_clique_nodes = set(n for c in retained_cliques for n in c)
+
+    # Active communicators not in any clique of size >= 3
+    dyad_only_nodes = graph_nodes - all_clique_nodes
+
+    # Communicators in cliques of size >= 3 that were omitted due to top_k truncation
+    truncation_omitted_nodes = (all_clique_nodes - retained_clique_nodes).intersection(graph_nodes)
+
+    # Compute SRI to see positive vs zero
+    if tensions is None:
+        tensions = compute_clique_tensions(G, retained_cliques)
+    sri = compute_silo_risk_index(retained_cliques, tensions, all_nodes)
+
+    positive_sri_nodes = {n for n, s in sri.items() if s > 0.0}
+    zero_sri_nodes = {n for n, s in sri.items() if s == 0.0}
+    zero_sri_communicators = zero_sri_nodes.intersection(graph_nodes)
+
+    return {
+        "total_nodes": len(all_nodes),
+        "num_graph_communicators": len(graph_nodes),
+        "num_inactive_nodes": len(inactive_nodes),
+        "num_dyad_only_nodes": len(dyad_only_nodes),
+        "num_truncation_omitted_nodes": len(truncation_omitted_nodes),
+        "num_retained_clique_nodes": len(retained_clique_nodes),
+        "num_positive_sri_nodes": len(positive_sri_nodes),
+        "num_zero_sri_nodes": len(zero_sri_nodes),
+        "num_zero_sri_communicators": len(zero_sri_communicators),
+        "dyad_only_nodes": sorted(dyad_only_nodes),
+        "truncation_omitted_nodes": sorted(truncation_omitted_nodes),
+        "retained_clique_nodes": sorted(retained_clique_nodes),
+        "positive_sri_nodes": sorted(positive_sri_nodes),
+    }
+

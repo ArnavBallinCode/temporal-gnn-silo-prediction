@@ -9,6 +9,7 @@ from .baselines import (
     HistoricalMeanBaseline,
     FeatureOnlyMLP,
     StaticGCNModel,
+    TemporalGNNAblationNoGRU,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "HistoricalMeanBaseline",
     "FeatureOnlyMLP",
     "StaticGCNModel",
+    "TemporalGNNAblationNoGRU",
 ]
