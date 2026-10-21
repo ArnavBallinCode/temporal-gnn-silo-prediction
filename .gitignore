@@ -9,6 +9,10 @@ __pycache__/
 # Outputs and logs
 outputs/*
 !outputs/audit/
+!outputs/revision/
+outputs/revision/*
+!outputs/revision/revision_results.json
+!outputs/revision/figures/
 *.log
 
 # macOS
@@ -21,3 +25,8 @@ outputs/*
 
 # Paper working directory (ignored from repository)
 Paper/
+
+# Paper drafts and submitted PDFs live in a separate private repository
+*.pdf
+!Dataset/**/*.pdf
+METHODOLOGY_AND_VERIFICATION_GUIDE.md

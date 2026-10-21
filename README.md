@@ -73,45 +73,45 @@ $$\hat{T}^{(k+1)}(C_i) = \text{Softplus}\big(\text{MLP}(s_i^{(k)})\big)$$
 
 ---
 
-## 4. Multi-Seed Empirical Benchmarks & Scientific Audit
+## 4. Results (current)
 
-Evaluated chronologically across 44 discrete 30-day snapshots spanning Nov 1998 to June 2002:
-- **Train Split (70%):** Snapshots 0 to 29 (Nov 1998 – May 2001)
-- **Validation Split (15%):** Snapshots 30 to 35 (May 2001 – Oct 2001)
-- **Held-Out Test Split (15%):** Snapshots 36 to 42 (Nov 2001 – May 2002; coincides with Enron Chapter 11 collapse)
+All numbers below come from `src/training/revision_experiments.py` and are saved in
+`outputs/revision/revision_results.json`. Earlier tables in this README (and in
+`outputs/audit/`) came from older runs and are superseded.
 
-### The Target Formulation Dilemma: Protocol A vs. Protocol B
-In dynamic organizational networks, cliques frequently form and dissolve. In the held-out test split, 70 out of 109 cliques (**64.2%**) dissolved ($J < 0.5$).
-- **Protocol A (Unconditional, $N=109$):** Evaluates all cliques. Dissolved cliques receive target tension zero ($y=0.0$).
-- **Protocol B (Conditional on Survival, $N=39$):** Evaluates strictly persisting cliques that survive into $t+1$ with $J \ge 0.5$.
+### Group turnover and the two protocols
+Only 40.3% of retained cliques have a one-to-one Jaccard match (J ≥ 0.5) in the next
+30-day snapshot. Dissolved cliques have no future tension, so we report:
+- **Protocol A (deployable):** all cliques at k, dissolved ones scored as 0.
+- **Protocol B (oracle-conditioned):** only cliques that survive to k+1. Not usable in
+  practice, because survival is only known after the fact.
 
-### 5-Seed Benchmark Results (Seeds: `[42, 123, 456, 789, 999]`)
+### Main findings
+- **Protocol B, chronological test (35 survivors, 10 seeds):** persistence 5.04. GCN two-stage
+  3.47 ± 1.17 and GCN trained on survivors without any classifier 3.52 ± 1.14. Every neural
+  model's 95% block-bootstrap CI of the MSE difference from persistence includes zero.
+- **Rolling origin (24 origins, 237 survivors):** persistence 11.56, ridge AR 11.08,
+  recalibrated persistence 11.29. GCN two-stage 17.62 and GCN+GRU two-stage 18.89 are
+  significantly worse than persistence (Wilcoxon p = 0.056 and 0.008).
+- **Ablation (rolling, two-stage):** MLP 13.57, MLP+history features 14.86, GCN+history
+  features 15.12, GCN 17.62, MLP+GRU 18.68, GCN+GRU 18.89. Neither the graph nor the GRU helps.
+- **Survival classifiers:** neural survival heads are near chance (AUROC 0.42–0.60 on the
+  test window). A logistic model on clique age and tension history reaches 0.67 under the
+  rolling origin.
+- **Protocol A (rolling):** persistence × logistic survival probability is the only forecast
+  that clearly beats base-rate persistence (16.42 vs 19.42, p = 0.016).
+- **Measurement:** 55% of retained cliques are exactly one email's participant list, and 10%
+  of dissolutions come from the top-30 cut-off. Turnover stays high for Louvain communities
+  (36% survival) and k-cores (46–52%).
+- **Node-level SRI:** forecasts rank people about as well as this month's observed SRI
+  (Spearman 0.528 vs 0.529). SRI correlates 0.82 with clique-membership count.
 
-| Model Architecture | Protocol A: Test MSE ($\mu \pm \sigma$) | Protocol A: Test MAE ($\mu \pm \sigma$) | Protocol A: Pearson $r$ | Protocol B: Test MSE ($\mu \pm \sigma$) | Protocol B: Test MAE ($\mu \pm \sigma$) | Protocol B: Pearson $r$ |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Persistence Baseline** | $24.53 \pm 0.00$ | $4.02 \pm 0.00$ | $0.2859$ | $\mathbf{5.09 \pm 0.00}$ | $\mathbf{1.94 \pm 0.00}$ | $\mathbf{0.7270}$ |
-| **Historical Mean Baseline** | $6.01 \pm 0.00$ | $\mathbf{1.52 \pm 0.00}$ | $-0.0530$ | $18.56 \pm 0.00$ | $3.86 \pm 0.00$ | $0.0000$ |
-| **Feature-Only MLP** | $5.34 \pm 0.20$ | $2.03 \pm 0.05$ | $0.2742$ | $7.74 \pm 0.32$ | $2.28 \pm 0.08$ | $0.3000$ |
-| **Static GCN** | $\mathbf{4.96 \pm 0.09}$ | $1.75 \pm 0.14$ | $0.1479$ | $12.93 \pm 2.63$ | $3.13 \pm 0.37$ | $0.4729$ |
-| **Temporal GNN (No GRU Ablation)** | $5.02 \pm 0.16$ | $1.86 \pm 0.18$ | $0.1963$ | $10.81 \pm 3.45$ | $2.80 \pm 0.48$ | $0.5292$ |
-| **Temporal GNN (Full GCN + GRU)** | $7.13 \pm 1.20$ | $1.98 \pm 0.16$ | $0.0088$ | $14.10 \pm 3.95$ | $3.20 \pm 0.52$ | $0.1156$ |
+Note: "Static GCN" and "Temporal GNN (No GRU)" in the older scripts are the same
+architecture. The current experiments treat them as one model, "GCN".
 
-### Key Scientific Takeaways:
-1. **Does GRU memory improve performance?** **No.** Static GCN ($4.96 \pm 0.09$) and the No-GRU ablation ($5.02 \pm 0.16$) both outperform the Full Temporal GNN ($7.13 \pm 1.20$). The GRU adds parameter variance and suffers from state resets.
-2. **Persistence is unbeatable on persisting cliques:** When cliques survive into the future, simply persisting past tension achieves $\text{MSE} = 5.09$ and Pearson $r = 0.7270$, outperforming all neural models. Neural models achieve lower MSE in Protocol A strictly by regularizing predictions toward zero when 64.2% of cliques dissolve.
-
----
-
-## 5. Node-Level Silo Risk Index (SRI) Ranking Audit
-
-| Ranking Strategy | Spearman $\rho$ (All 148 Nodes) | Top-5 Overlap | Top-10 Overlap | Spearman $\rho$ (Active Nodes Only) |
-| :--- | :---: | :---: | :---: | :---: |
-| **Betweenness Centrality** | $0.4022$ | $4.0\%$ | $10.0\%$ | $-0.0309$ |
-| **Degree Centrality** | $0.4715$ | $12.0\%$ | $30.0\%$ | $0.4492$ ($p < 0.01$) |
-| **Persistence Observed SRI** | $\mathbf{0.5187}$ | $\mathbf{36.0\%}$ | $\mathbf{48.0\%}$ | $\mathbf{0.4935}$ ($p < 10^{-4}$) |
-| **Temporal GNN Predicted SRI** | $0.4687$ | $28.0\%$ | $30.0\%$ | $0.1183$ ($p > 0.05$ in 3/4 snaps) |
-
-- **Finding:** Evaluating over all 148 employees yields $\rho \approx 0.51 - 0.54$ primarily because $\sim 120$ non-clique nodes share tied true scores of 0.0. When restricted to active employees at risk, **Persistence Observed SRI ($\rho = 0.4935$) and Degree Centrality ($\rho = 0.4492$) perform significantly better than Temporal GNN ($\rho = 0.1183$)**.
+### Figures
+`outputs/revision/figures/`: Protocol B controls with bootstrap CIs, rolling-origin
+errors by origin, and sensitivity of survival to τ, K′ and window length.
 
 ---
 
@@ -136,6 +136,13 @@ In dynamic organizational networks, cliques frequently form and dissolve. In the
 ---
 
 ## 7. Execution & Reproduction Commands
+
+### 0. Reproduce every number in the current paper (about 4 minutes)
+```bash
+python3 src/training/revision_experiments.py
+python3 src/training/revision_figures.py
+```
+Outputs: `outputs/revision/revision_results.json` and `outputs/revision/figures/`.
 
 ### 1. Run Automated Test Suite (49 tests)
 ```bash
@@ -174,7 +181,8 @@ Outputs: `outputs/audit/figures/fig[1-7]_*.png` and `outputs/audit/figure_captio
 Temporal_GNN/
 ├── Dataset/email-Enron/          # Raw Cornell simplicial vectors
 ├── outputs/
-│   ├── audit/                    # Audited reports, CSVs, JSONs, figures
+│   ├── revision/                 # Current results: revision_results.json + figures
+│   ├── audit/                    # Earlier audited reports, CSVs, JSONs, figures
 │   │   ├── figures/              # Audited publication figures (Fig 1-7)
 │   │   ├── benchmark_results.json
 │   │   ├── benchmark_results.csv
