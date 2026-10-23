@@ -13,6 +13,10 @@ outputs/*
 outputs/revision/*
 !outputs/revision/revision_results.json
 !outputs/revision/figures/
+!outputs/revision2/
+outputs/revision2/*
+!outputs/revision2/results.json
+!outputs/revision2/figures/
 *.log
 
 # macOS

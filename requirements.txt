@@ -1,0 +1,9 @@
+# Versions used for the results in the paper (Python 3.14.7, macOS, CPU only).
+torch==2.14.0
+numpy==2.5.0
+scipy==1.18.1
+scikit-learn==1.9.1
+networkx==3.7
+lightgbm==4.5.0
+matplotlib==3.11.2
+pytest

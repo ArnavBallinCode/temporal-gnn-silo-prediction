@@ -1,6 +1,6 @@
 # Temporal Graph Neural Network for Organizational Silo Detection
 
-[![Tests](https://img.shields.io/badge/pytest-49%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/pytest-56%20passed-brightgreen.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)]()
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)]()
 
@@ -75,9 +75,31 @@ $$\hat{T}^{(k+1)}(C_i) = \text{Softplus}\big(\text{MLP}(s_i^{(k)})\big)$$
 
 ## 4. Results (current)
 
-All numbers below come from `src/training/revision_experiments.py` and are saved in
-`outputs/revision/revision_results.json`. Earlier tables in this README (and in
-`outputs/audit/`) came from older runs and are superseded.
+The forecasting results in the paper come from `src/training/revision2_experiments.py`
+(saved in `outputs/revision2/results.json`); the turnover analysis comes from
+`src/training/revision_experiments.py` (`outputs/revision/revision_results.json`).
+Older tables in `outputs/audit/` came from earlier runs and are superseded.
+
+### Second revision (properly trained models)
+- Neural models now use standardized inputs, early stopping (up to 300 epochs), a small
+  hyperparameter search, and a residual head that starts at persistence.
+- Rolling origin (24 origins, 237 survivors), raw tension: residual MLP 0.96 x persistence MSE
+  [0.93, 1.00], residual GCN / GraphSAGE 1.00, residual GCN+GRU 1.02, plain GCN 1.15.
+  None is significantly better than persistence after Holm adjustment; the residual MLP is
+  equivalent to persistence within a 10% margin, and graph encoders are equivalent to the MLP.
+- Five group definitions x {raw, normalized} target: on the raw target the neural models stay
+  within about 10% of persistence; on the normalized target they are worse, and only simple
+  linear recalibration / ridge AR improve on persistence.
+- Deployable forecast: persistence x hazard-model survival probability lowers Protocol A MSE by
+  17% relative to persistence x base rate (four of five group definitions).
+
+Reproduce (about 30 minutes on 8 cores):
+```bash
+pip install -r requirements.txt
+python3 src/training/revision2_experiments.py
+python3 src/training/revision2_experiments.py --only chrono
+python3 src/training/revision2_figures.py
+```
 
 ### Group turnover and the two protocols
 Only 40.3% of retained cliques have a one-to-one Jaccard match (J ≥ 0.5) in the next
@@ -144,7 +166,7 @@ python3 src/training/revision_figures.py
 ```
 Outputs: `outputs/revision/revision_results.json` and `outputs/revision/figures/`.
 
-### 1. Run Automated Test Suite (49 tests)
+### 1. Run Automated Test Suite (56 tests)
 ```bash
 pytest -v
 ```
