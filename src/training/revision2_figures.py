@@ -29,7 +29,7 @@ CONS = {"clique": "Maximal cliques", "clique_multi": "Cliques, not one email", "
 
 def fig_curves(R):
     cf = R["chrono_fit"]
-    fig, axes = plt.subplots(1, len(cf), figsize=(7.2, 1.9), sharey=False)
+    fig, axes = plt.subplots(1, len(cf), figsize=(7.2, 2.2), sharey=False)
     for ax, (m, v) in zip(axes, cf.items()):
         c = np.array(v["curve"])
         ax.plot(c[:, 0], c[:, 1], color="#4c78a8", lw=1, label="train")
@@ -40,7 +40,7 @@ def fig_curves(R):
     axes[0].set_ylabel("loss (BCE + scaled MSE)")
     axes[0].legend(fontsize=6.5, frameon=False)
     fig.tight_layout()
-    fig.savefig(OUT / "figS1_training_curves.png", dpi=300)
+    fig.savefig(OUT / "figS1_training_curves.png", dpi=600)
     plt.close(fig)
 
 

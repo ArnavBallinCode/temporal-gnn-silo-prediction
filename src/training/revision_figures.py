@@ -116,7 +116,7 @@ def fig_sensitivity(res):
     axes[0].set_ylabel("Clique survival rate")
     axes[0].legend(fontsize=6.5, frameon=False)
     fig.tight_layout()
-    fig.savefig(OUT / "figR3_sensitivity.png", dpi=300)
+    fig.savefig(OUT / "figR3_sensitivity.png", dpi=600)
     plt.close(fig)
 
 
